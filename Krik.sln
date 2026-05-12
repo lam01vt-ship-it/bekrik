@@ -7,6 +7,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{72E873B4-423
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Krik.Api", "src\Krik.Api\Krik.Api.csproj", "{1B9BD0A2-58BC-429B-BA31-2F7004F4DD2F}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{C1D9CA26-8C37-4BAE-9CF8-7EA4DB94C7ED}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Krik.Api.Tests", "tests\Krik.Api.Tests\Krik.Api.Tests.csproj", "{C57D2935-F0EA-4211-8BBF-CE2C11AA9578}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,8 +24,13 @@ Global
 		{1B9BD0A2-58BC-429B-BA31-2F7004F4DD2F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1B9BD0A2-58BC-429B-BA31-2F7004F4DD2F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1B9BD0A2-58BC-429B-BA31-2F7004F4DD2F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C57D2935-F0EA-4211-8BBF-CE2C11AA9578}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C57D2935-F0EA-4211-8BBF-CE2C11AA9578}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C57D2935-F0EA-4211-8BBF-CE2C11AA9578}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C57D2935-F0EA-4211-8BBF-CE2C11AA9578}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{1B9BD0A2-58BC-429B-BA31-2F7004F4DD2F} = {72E873B4-423E-4E5C-A4DA-6A8080E93FD3}
+		{C57D2935-F0EA-4211-8BBF-CE2C11AA9578} = {C1D9CA26-8C37-4BAE-9CF8-7EA4DB94C7ED}
 	EndGlobalSection
 EndGlobal

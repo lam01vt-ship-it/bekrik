@@ -11,3 +11,6 @@ out/
 ## Secrets — không commit file chứa mật khẩu thật
 appsettings.*.local.json
 *.pfx
+
+## Local build output (avoid locking bin/ when IDE runs API)
+_build_out/

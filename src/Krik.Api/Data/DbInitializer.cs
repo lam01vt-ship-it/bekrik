@@ -8,9 +8,8 @@ public static class DbInitializer
 {
     public static async Task SeedAsync(AppDbContext db, CancellationToken cancellationToken = default)
     {
-        if (await db.Roles.AnyAsync(cancellationToken))
-            return;
-
+        if (!await db.Roles.AnyAsync(cancellationToken))
+        {
         var roleAdmin = new Role { Id = Guid.Parse("11111111-1111-1111-1111-111111111101"), Name = KrikRoles.AdminHR };
         var roleArea = new Role { Id = Guid.Parse("11111111-1111-1111-1111-111111111102"), Name = KrikRoles.AreaManager };
         var roleStore = new Role { Id = Guid.Parse("11111111-1111-1111-1111-111111111103"), Name = KrikRoles.StoreManager };
@@ -87,5 +86,8 @@ public static class DbInitializer
 
         db.Users.AddRange(admin, areaMgr, storeMgr, sales);
         await db.SaveChangesAsync(cancellationToken);
+        }
+
+        await StaffShiftKpiDemoSeed.EnsureSeedAsync(db, cancellationToken);
     }
 }
