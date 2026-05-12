@@ -11,7 +11,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<KrikUser> Users => Set<KrikUser>();
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<UserArea> UserAreas => Set<UserArea>();
-
     public DbSet<StoreStaff> StoreStaff => Set<StoreStaff>();
     public DbSet<StaffDailyEntry> StaffDailyEntries => Set<StaffDailyEntry>();
     public DbSet<StoreDailySummary> StoreDailySummaries => Set<StoreDailySummary>();
