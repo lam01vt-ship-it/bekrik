@@ -44,9 +44,19 @@ public static class StoreAccess
         user.IsInRole(KrikRoles.AreaManager) ||
         user.IsInRole(KrikRoles.StoreManager);
 
-    /// <summary>Chỉ Admin được sửa cấu hình KPI tháng (đề 4.1).</summary>
     public static bool CanEditKpiMonthConfig(ClaimsPrincipal user) => IsAdmin(user);
 
-    /// <summary>QLCH+ có thể sửa roster; Sales chỉ self (check tại controller qua LinkedUserId).</summary>
     public static bool CanEditStaffMaster(ClaimsPrincipal user) => IsAdminOrAreaOrStore(user);
+
+    public static bool CanManageStores(ClaimsPrincipal user) =>
+        user.IsInRole(KrikRoles.AdminHR) || user.IsInRole(KrikRoles.AreaManager);
+
+    public static bool CanListAreas(ClaimsPrincipal user) =>
+        user.IsInRole(KrikRoles.AdminHR) || user.IsInRole(KrikRoles.AreaManager);
+
+    /// <summary>Ngày làm việc &lt; hôm nay: chỉ QL khu vực / QL cửa hàng / Admin HR được sửa bảng công.</summary>
+    public static bool CanEditPastShiftDailyWorkDate(ClaimsPrincipal user) =>
+        user.IsInRole(KrikRoles.AdminHR) ||
+        user.IsInRole(KrikRoles.AreaManager) ||
+        user.IsInRole(KrikRoles.StoreManager);
 }

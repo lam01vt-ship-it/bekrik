@@ -12,7 +12,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
     var cs = builder.Configuration.GetConnectionString("DefaultConnection")
-             ?? throw new InvalidOperationException("Missing ConnectionStrings:DefaultConnection");
+             ?? throw new InvalidOperationException("Thiếu ConnectionStrings:DefaultConnection trong cấu hình.");
     options.UseNpgsql(cs);
 });
 
@@ -20,7 +20,7 @@ builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptio
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 
 var jwtSection = builder.Configuration.GetSection(JwtOptions.SectionName);
-var jwtKey = jwtSection["Key"] ?? throw new InvalidOperationException("Missing Jwt:Key");
+var jwtKey = jwtSection["Key"] ?? throw new InvalidOperationException("Thiếu Jwt:Key trong cấu hình.");
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -56,10 +56,10 @@ builder.Services.AddControllers().AddJsonOptions(o =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Krik API", Version = "v1" });
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "API Krik", Version = "v1" });
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Bearer. Example: `Bearer {token}`",
+        Description = "JWT Bearer. Ví dụ: Bearer {token}",
         Name = "Authorization",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.Http,

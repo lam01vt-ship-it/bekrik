@@ -234,7 +234,7 @@ namespace Krik.Api.Data.Migrations
                     b.Property<decimal>("ChannelRevenueMorning")
                         .HasColumnType("numeric");
 
-                    b.Property<decimal>("MockApiRevenueTotal")
+                    b.Property<decimal>("TongDoanhThuHeThong")
                         .HasColumnType("numeric");
 
                     b.Property<int>("StoreCustomers")

@@ -1,6 +1,5 @@
 namespace Krik.Api.Entities;
 
-/// <summary>Một dòng nhập công + DT cá nhân theo ngày (giống 1 row NV trên sheet).</summary>
 public class StaffDailyEntry
 {
     public Guid Id { get; set; }
@@ -23,6 +22,5 @@ public class StaffDailyEntry
     public int Orders { get; set; }
     public int Products { get; set; }
 
-    /// <summary>Optimistic concurrency (save-on-blur / race).</summary>
     public int Version { get; set; }
 }

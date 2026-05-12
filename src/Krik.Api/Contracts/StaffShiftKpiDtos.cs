@@ -8,7 +8,8 @@ public sealed record StoreStaffDto(
     string ContractType,
     decimal HourlyRate,
     decimal TeamBonusBase,
-    Guid? LinkedUserId);
+    Guid? LinkedUserId,
+    string? LinkedEmail);
 
 public sealed record StoreStaffWriteDto(
     string StaffCode,
@@ -17,7 +18,9 @@ public sealed record StoreStaffWriteDto(
     string ContractType,
     decimal HourlyRate,
     decimal TeamBonusBase,
-    Guid? LinkedUserId);
+    Guid? LinkedUserId,
+    string? LoginEmail,
+    string? LoginPassword);
 
 public sealed record StoreDailySummaryDto(
     DateOnly WorkDate,
@@ -28,7 +31,7 @@ public sealed record StoreDailySummaryDto(
     int StoreOrders,
     int StoreProducts,
     decimal StoreDayKpiTarget,
-    decimal MockApiRevenueTotal);
+    decimal TongDoanhThuHeThong);
 
 public sealed record DailyEntryRowDto(
     Guid EntryId,
@@ -95,7 +98,7 @@ public sealed record MonthlyDashboardDto(
     string YearMonth,
     decimal MonthlyTarget,
     decimal RevenueFromStaffEntries,
-    decimal RevenueFromApiMock,
+    decimal TongDoanhThuHeThongThang,
     decimal KpiAchievedPct,
     bool DiscrepancyOver5Pct,
     bool IsMonthLocked);

@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Krik.Api.Data;
 
-/// <summary>Seed K01: 8 NV, KPI tháng 2026-05, 1 tuần nhập công (sheet 1.Nhập DL).</summary>
 public static class StaffShiftKpiDemoSeed
 {
     private static readonly Guid K01 = Guid.Parse("33333333-3333-3333-3333-333333333301");
@@ -39,19 +38,22 @@ public static class StaffShiftKpiDemoSeed
         {
             var d = start.AddDays(i);
             var factor = 0.92m + 0.01m * i;
+            var chMorning = 3_500_000m * factor;
+            var chAfternoon = 11_000_000m * factor;
+            var chEvening = 14_000_000m * factor;
             db.StoreDailySummaries.Add(new StoreDailySummary
             {
                 Id = Guid.NewGuid(),
                 StoreId = K01,
                 WorkDate = d,
-                ChannelRevenueMorning = 3_500_000m * factor,
-                ChannelRevenueAfternoon = 11_000_000m * factor,
-                ChannelRevenueEvening = 14_000_000m * factor,
+                ChannelRevenueMorning = chMorning,
+                ChannelRevenueAfternoon = chAfternoon,
+                ChannelRevenueEvening = chEvening,
                 StoreCustomers = 30 + i,
                 StoreOrders = 75 + i * 2,
                 StoreProducts = 120 + i * 3,
                 StoreDayKpiTarget = 42_000_000m,
-                MockApiRevenueTotal = 28_500_000m * factor
+                TongDoanhThuHeThong = chMorning + chAfternoon + chEvening
             });
         }
 

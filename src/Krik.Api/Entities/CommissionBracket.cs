@@ -1,11 +1,9 @@
 namespace Krik.Api.Entities;
 
-/// <summary>Bracket hoa hồng version theo thời gian — không hardcode trong code.</summary>
 public class CommissionBracket
 {
     public Guid Id { get; set; }
 
-    /// <summary>Vd NVBH_FT</summary>
     public string PositionCode { get; set; } = string.Empty;
 
     public string ContractType { get; set; } = string.Empty;

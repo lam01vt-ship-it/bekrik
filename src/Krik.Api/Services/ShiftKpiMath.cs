@@ -1,6 +1,7 @@
 namespace Krik.Api.Services;
 
-/// <summary>Công thức cốt lõi đề mục 5 — dùng chung API + unit test.</summary>
+using System.Text.Json;
+
 public static class ShiftKpiMath
 {
     public static bool IsSalesPosition(string positionCode)
@@ -8,14 +9,12 @@ public static class ShiftKpiMath
         return positionCode is "NVBH_FT" or "NVBH_PT";
     }
 
-    /// <summary>5.1 — weight_NV = (gc sáng + chiều + tối + bổ sung) × is_sales</summary>
     public static decimal WeightNv(decimal gcMorning, decimal gcAfternoon, decimal gcEvening, decimal gcExtra, bool isSales)
     {
         if (!isSales) return 0;
         return gcMorning + gcAfternoon + gcEvening + gcExtra;
     }
 
-    /// <summary>5.1 — target_NV và % (percent_NV = revenue / target × 100).</summary>
     public static (decimal targetNv, decimal percentNv) DailyPersonalTargets(
         decimal storeDayKpi,
         decimal weightNv,
@@ -33,7 +32,6 @@ public static class ShiftKpiMath
         return (targetNv, percent);
     }
 
-    /// <summary>5.2 — adjusted target cho một ngày tương lai trong tuần (remaining × ratio / sumFutureRatios).</summary>
     public static decimal RebalancedDayTarget(
         decimal remainingWeeklyKpi,
         decimal dayRatio,
@@ -44,7 +42,6 @@ public static class ShiftKpiMath
         return remainingWeeklyKpi * dayRatio / sumFutureDayRatios;
     }
 
-    /// <summary>5.3 — chọn % hoa hồng theo KPI% đạt (kpiAchievedPct).</summary>
     public static decimal PickCommissionPct(
         IReadOnlyList<(decimal min, decimal? max, decimal pct)> brackets,
         decimal kpiAchievedPct)
@@ -60,7 +57,6 @@ public static class ShiftKpiMath
         return 0m;
     }
 
-    /// <summary>5.4 — base + commission + team bonus QLCH.</summary>
     public static (decimal baseSalary, decimal commission, decimal teamBonus, decimal total) MonthlySalary(
         decimal hourlyRate,
         decimal totalHours,
@@ -83,5 +79,42 @@ public static class ShiftKpiMath
         }
 
         return (baseSalary, commission, teamBonus, baseSalary + commission + teamBonus);
+    }
+
+    /// <summary>
+    /// KPI mục tiêu một ngày từ KPI tháng và JSON tỷ trọng 7 ngày (T2→CN, index 0 = Monday).
+    /// Nếu JSON không hợp lệ thì chia đều theo số ngày trong tháng.
+    /// </summary>
+    public static decimal DailyTargetFromMonthConfig(decimal monthlyTargetAmount, string dayRatiosJson, DateOnly workDate)
+    {
+        if (monthlyTargetAmount <= 0m)
+            return 0m;
+
+        var dim = DateTime.DaysInMonth(workDate.Year, workDate.Month);
+        var proportionalFallback = monthlyTargetAmount / dim;
+
+        if (string.IsNullOrWhiteSpace(dayRatiosJson))
+            return proportionalFallback;
+
+        decimal[]? arr = null;
+        try
+        {
+            arr = JsonSerializer.Deserialize<decimal[]>(dayRatiosJson);
+        }
+        catch (JsonException)
+        {
+            return proportionalFallback;
+        }
+
+        if (arr is null || arr.Length != 7)
+            return proportionalFallback;
+
+        var sum = arr.Sum();
+        if (sum <= 0m)
+            return proportionalFallback;
+
+        var dow = workDate.DayOfWeek;
+        var ix = dow == DayOfWeek.Sunday ? 6 : (int)dow - 1;
+        return monthlyTargetAmount * arr[ix] / sum;
     }
 }

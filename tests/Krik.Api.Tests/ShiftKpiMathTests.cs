@@ -64,4 +64,30 @@ public class ShiftKpiMathTests
         Assert.Equal(2_000_000m, tb2);
         Assert.Equal(100m + 2_000_000m, tot2);
     }
+
+    [Fact]
+    public void DailyTargetFromMonthConfig_equal_ratios_splits_by_day_weight()
+    {
+        var ratios = "[10,10,10,10,10,10,10]";
+        var fri = new DateOnly(2026, 5, 8);
+        var t = ShiftKpiMath.DailyTargetFromMonthConfig(700m, ratios, fri);
+        Assert.Equal(100m, t, 4);
+    }
+
+    [Fact]
+    public void DailyTargetFromMonthConfig_invalid_json_falls_back_to_days_in_month()
+    {
+        var d = new DateOnly(2026, 5, 8);
+        var t = ShiftKpiMath.DailyTargetFromMonthConfig(310m, "not-json", d);
+        Assert.Equal(310m / 31m, t, 6);
+    }
+
+    [Fact]
+    public void DailyTargetFromMonthConfig_sunday_uses_last_ratio()
+    {
+        var ratios = "[0,0,0,0,0,0,100]";
+        var sun = new DateOnly(2026, 5, 10);
+        var t = ShiftKpiMath.DailyTargetFromMonthConfig(700m, ratios, sun);
+        Assert.Equal(700m, t, 4);
+    }
 }

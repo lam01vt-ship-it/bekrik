@@ -65,6 +65,8 @@ FE mẫu nằm ở `../fekrik` (Vite proxy `/api` → cổng 5207).
 
 ## Module take-home: Công & KPI NV (`shift-kpi`)
 
+- **Hướng dẫn thử nghiệm (tài khoản, dữ liệu bảng, kịch bản)**: [HUONG_DAN_TEST.md](HUONG_DAN_TEST.md)
+
 - **API**: `GET/PATCH .../api/stores/{storeId}/shift-kpi/...` — xem Swagger (`daily`, `daily-entry`, `kpi-months`, `monthly-dashboard`, `payroll`, `payroll-export`, `staff`).
 - **Seed demo**: cửa hàng **K01**, 8 NV, KPI tháng 2026-05, ~1 tuần `StaffDailyEntry` + tổng ngày (`StaffShiftKpiDemoSeed`). User `sales@krik.local` gắn 1 NV bán hàng để thử quyền Sales (chỉ thấy row mình).
 - **Thiết kế ngắn**: [docs/design.md](docs/design.md) (ERD tóm tắt, permission, save-on-blur/version, trade-offs).
