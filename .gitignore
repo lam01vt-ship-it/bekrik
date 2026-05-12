@@ -1,0 +1,13 @@
+## .NET / Visual Studio
+bin/
+obj/
+out/
+.vs/
+*.user
+*.userosscache
+*.suo
+*.cache
+
+## Secrets — không commit file chứa mật khẩu thật
+appsettings.*.local.json
+*.pfx
