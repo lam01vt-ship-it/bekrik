@@ -31,6 +31,7 @@ public static class StaffShiftKpiDemoSeed
             ShiftRatiosJson = """{"weekday":{"morning":33.3,"afternoon":33.3,"evening":33.4},"weekend":{"morning":33.3,"afternoon":33.3,"evening":33.4}}""",
             IsMonthLocked = false,
             UpdatedAt = DateTimeOffset.UtcNow
+
         });
 
         var start = new DateOnly(2026, 5, 5);
