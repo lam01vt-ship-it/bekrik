@@ -252,6 +252,9 @@ namespace Krik.Api.Data.Migrations
                     b.Property<int>("StoreProducts")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("IsDayLocked")
+                        .HasColumnType("boolean");
+
                     b.Property<DateOnly>("WorkDate")
                         .HasColumnType("date");
 

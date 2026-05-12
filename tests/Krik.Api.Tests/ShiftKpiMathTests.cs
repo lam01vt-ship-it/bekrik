@@ -90,4 +90,22 @@ public class ShiftKpiMathTests
         var t = ShiftKpiMath.DailyTargetFromMonthConfig(700m, ratios, sun);
         Assert.Equal(700m, t, 4);
     }
+
+    [Fact]
+    public void WeekSliceIndexInMonth_first_week_for_early_days()
+    {
+        var d = new DateOnly(2026, 5, 3);
+        Assert.Equal(0, ShiftKpiMath.WeekSliceIndexInMonth(d));
+    }
+
+    [Fact]
+    public void TryWeeklyRebalancedStoreDayKpi_splits_remaining_by_future_day_ratios()
+    {
+        var weeks = "[100,0,0,0,0]";
+        var days = "[10,10,10,10,10,10,10]";
+        var work = new DateOnly(2026, 5, 1);
+        var dict = new Dictionary<DateOnly, decimal>();
+        Assert.True(ShiftKpiMath.TryWeeklyRebalancedStoreDayKpi(700m, weeks, days, work, dict, out var k));
+        Assert.True(k > 0m);
+    }
 }

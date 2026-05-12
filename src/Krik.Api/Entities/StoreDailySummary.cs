@@ -18,4 +18,6 @@ public class StoreDailySummary
     public decimal StoreDayKpiTarget { get; set; }
 
     public decimal TongDoanhThuHeThong { get; set; }
+
+    public bool IsDayLocked { get; set; }
 }

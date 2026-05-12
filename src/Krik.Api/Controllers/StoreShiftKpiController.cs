@@ -197,6 +197,44 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
         return NoContent();
     }
 
+    [HttpPatch("staff/{staffId:guid}/position")]
+    public async Task<ActionResult<StoreStaffDto>> PatchStaffPosition(
+        Guid storeId,
+        Guid staffId,
+        [FromQuery] string? workDate,
+        [FromBody] StaffPositionPatchDto body,
+        CancellationToken cancellationToken)
+    {
+        if (!await StoreAccess.CanAccessStoreAsync(db, User, storeId, cancellationToken))
+            return Forbid();
+        if (!StoreAccess.CanEditStaffMaster(User))
+            return Forbid();
+
+        if (DateOnly.TryParse(workDate ?? "", out var wd))
+        {
+            var ymPos = new DateOnly(wd.Year, wd.Month, 1);
+            if (await db.StoreMonthlyKpiConfigs.AsNoTracking().AnyAsync(c => c.StoreId == storeId && c.YearMonth == ymPos && c.IsMonthLocked, cancellationToken))
+                return Conflict(new { message = "Tháng đã khoá — không đổi chức danh trên bảng công." });
+            if (await db.StoreDailySummaries.AsNoTracking().AnyAsync(x => x.StoreId == storeId && x.WorkDate == wd && x.IsDayLocked, cancellationToken))
+                return Conflict(new { message = "Ngày đã khoá — không đổi chức danh." });
+        }
+
+        var posErr = ValidatePositionCode(body.PositionCode);
+        if (posErr is not null)
+            return BadRequest(posErr);
+
+        var entity = await db.StoreStaff.FirstOrDefaultAsync(s => s.Id == staffId && s.StoreId == storeId, cancellationToken);
+        if (entity is null) return NotFound();
+
+        entity.PositionCode = body.PositionCode.Trim().ToUpperInvariant();
+        await db.SaveChangesAsync(cancellationToken);
+
+        var linkedEmail = entity.LinkedUserId is { } uid
+            ? await db.Users.AsNoTracking().Where(u => u.Id == uid).Select(u => u.Email).FirstOrDefaultAsync(cancellationToken)
+            : null;
+        return Ok(new StoreStaffDto(entity.Id, entity.StaffCode, entity.FullName, entity.PositionCode, entity.ContractType, entity.HourlyRate, entity.TeamBonusBase, entity.LinkedUserId, linkedEmail));
+    }
+
     [HttpGet("daily")]
     public async Task<ActionResult<DailySheetDto>> GetDaily(Guid storeId, [FromQuery] string workDate, CancellationToken cancellationToken)
     {
@@ -302,15 +340,62 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
         Guid storeId,
         DateOnly workDate,
         StoreDailySummary? summary,
+        IReadOnlyDictionary<DateOnly, decimal> revenueByDate,
         CancellationToken cancellationToken)
     {
         var ym = new DateOnly(workDate.Year, workDate.Month, 1);
         var cfg = await db.StoreMonthlyKpiConfigs.AsNoTracking()
             .FirstOrDefaultAsync(c => c.StoreId == storeId && c.YearMonth == ym, cancellationToken);
-        if (cfg is { MonthlyTargetAmount: > 0m })
-            return ShiftKpiMath.DailyTargetFromMonthConfig(cfg.MonthlyTargetAmount, cfg.DayRatiosJson, workDate);
+        if (cfg is not { MonthlyTargetAmount: > 0m })
+            return summary?.StoreDayKpiTarget ?? 0m;
 
-        return summary?.StoreDayKpiTarget ?? 0m;
+        if (ShiftKpiMath.TryWeeklyRebalancedStoreDayKpi(cfg.MonthlyTargetAmount, cfg.WeekRatiosJson, cfg.DayRatiosJson, workDate, revenueByDate, out var reb) && reb > 0m)
+            return reb;
+
+        return ShiftKpiMath.DailyTargetFromMonthConfig(cfg.MonthlyTargetAmount, cfg.DayRatiosJson, workDate);
+    }
+
+    private async Task<IReadOnlyDictionary<DateOnly, decimal>> BuildStaffRevenueByDateAsync(
+        Guid storeId,
+        DateOnly yearMonthFirst,
+        CancellationToken cancellationToken)
+    {
+        var last = new DateOnly(yearMonthFirst.Year, yearMonthFirst.Month,
+            DateTime.DaysInMonth(yearMonthFirst.Year, yearMonthFirst.Month));
+        var rows = await (
+            from e in db.StaffDailyEntries.AsNoTracking()
+            join s in db.StoreStaff.AsNoTracking() on e.StoreStaffId equals s.Id
+            where s.StoreId == storeId && e.WorkDate >= yearMonthFirst && e.WorkDate <= last
+            group e by e.WorkDate into g
+            select new { d = g.Key, sum = g.Sum(x => x.RevenueMorning + x.RevenueAfternoon + x.RevenueEvening) }
+        ).ToListAsync(cancellationToken);
+        return rows.ToDictionary(x => x.d, x => x.sum);
+    }
+
+    private static bool IsMgmtPeerPosition(string positionCode) =>
+        positionCode is "QLCH" or "CHP";
+
+    private async Task<bool> CanUserPatchDailyRowAsync(Guid storeId, StoreStaff target, CancellationToken cancellationToken)
+    {
+        if (StoreAccess.IsAdmin(User) || User.IsInRole(KrikRoles.AreaManager))
+            return true;
+
+        if (!User.IsInRole(KrikRoles.StoreManager))
+            return true;
+
+        var uid = GetUserId();
+        if (uid is null)
+            return false;
+
+        var me = await db.StoreStaff.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.StoreId == storeId && s.LinkedUserId == uid, cancellationToken);
+        if (me is null)
+            return false;
+
+        if (IsMgmtPeerPosition(me.PositionCode) && IsMgmtPeerPosition(target.PositionCode) && me.Id != target.Id)
+            return false;
+
+        return true;
     }
 
     private async Task<DailySheetDto?> TryBuildDailySheetAsync(
@@ -318,13 +403,20 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
         DateOnly d,
         CancellationToken cancellationToken)
     {
+        var ym = new DateOnly(d.Year, d.Month, 1);
+        var monthCfg = await db.StoreMonthlyKpiConfigs.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.StoreId == storeId && c.YearMonth == ym, cancellationToken);
+        var monthLocked = monthCfg?.IsMonthLocked ?? false;
+
         var summary = await db.StoreDailySummaries.AsNoTracking()
             .FirstOrDefaultAsync(x => x.StoreId == storeId && x.WorkDate == d, cancellationToken);
+        var dayLocked = summary?.IsDayLocked ?? false;
 
-        var kpiDay = await ResolveStoreDayKpiTargetAsync(storeId, d, summary, cancellationToken);
+        var revenueByDate = await BuildStaffRevenueByDateAsync(storeId, ym, cancellationToken);
+        var kpiDay = await ResolveStoreDayKpiTargetAsync(storeId, d, summary, revenueByDate, cancellationToken);
 
         var summaryDto = summary is null
-            ? new StoreDailySummaryDto(d, 0, 0, 0, 0, 0, 0, kpiDay, 0)
+            ? new StoreDailySummaryDto(d, 0, 0, 0, 0, 0, 0, kpiDay, 0, false)
             : new StoreDailySummaryDto(
                 summary.WorkDate,
                 summary.ChannelRevenueMorning,
@@ -334,7 +426,8 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
                 summary.StoreOrders,
                 summary.StoreProducts,
                 kpiDay,
-                summary.TongDoanhThuHeThong);
+                summary.TongDoanhThuHeThong,
+                summary.IsDayLocked);
 
         var allStaff = await db.StoreStaff.AsNoTracking().Where(s => s.StoreId == storeId).OrderBy(s => s.StaffCode).ToListAsync(cancellationToken);
         var staffIdSet = allStaff.Select(s => s.Id).ToList();
@@ -371,6 +464,7 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
             var w = ShiftKpiMath.WeightNv(entry.HoursMorning, entry.HoursAfternoon, entry.HoursEvening, entry.HoursExtra, isSales);
             var rev = entry.RevenueMorning + entry.RevenueAfternoon + entry.RevenueEvening;
             var (target, pct) = ShiftKpiMath.DailyPersonalTargets(kpiDay, w, totalW, rev);
+            var canPatch = !monthLocked && !dayLocked && await CanUserPatchDailyRowAsync(storeId, s, cancellationToken);
             rows.Add(new DailyEntryRowDto(
                 entry.Id,
                 s.Id,
@@ -393,10 +487,11 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
                 w,
                 target,
                 rev,
-                pct));
+                pct,
+                canPatch));
         }
 
-        return new DailySheetDto(storeId, d, summaryDto, rows);
+        return new DailySheetDto(storeId, d, monthLocked, dayLocked, summaryDto, rows);
     }
 
     [HttpPatch("daily-entry")]
@@ -409,6 +504,17 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
             .Include(e => e.StoreStaff)
             .FirstOrDefaultAsync(e => e.Id == body.EntryId && e.StoreStaff.StoreId == storeId, cancellationToken);
         if (entry is null) return NotFound();
+
+        var ymLock = new DateOnly(entry.WorkDate.Year, entry.WorkDate.Month, 1);
+        var monthLocked = await db.StoreMonthlyKpiConfigs.AsNoTracking()
+            .AnyAsync(c => c.StoreId == storeId && c.YearMonth == ymLock && c.IsMonthLocked, cancellationToken);
+        var dayLocked = await db.StoreDailySummaries.AsNoTracking()
+            .AnyAsync(x => x.StoreId == storeId && x.WorkDate == entry.WorkDate && x.IsDayLocked, cancellationToken);
+        if (monthLocked || dayLocked)
+            return Conflict(new { message = "Tháng hoặc ngày đã khoá — không sửa bảng công." });
+
+        if (!await CanUserPatchDailyRowAsync(storeId, entry.StoreStaff, cancellationToken))
+            return Forbid();
 
         var today = DateOnly.FromDateTime(DateTime.Now);
         if (entry.WorkDate < today && !StoreAccess.CanEditPastShiftDailyWorkDate(User))
@@ -453,6 +559,138 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
         return Ok(dto);
     }
 
+    [HttpPatch("kpi-months/{yearMonth}/month-lock")]
+    public async Task<ActionResult<StoreMonthlyKpiConfigDto>> PatchKpiMonthLock(
+        Guid storeId,
+        string yearMonth,
+        [FromBody] MonthLockPatchDto body,
+        CancellationToken cancellationToken)
+    {
+        if (!await StoreAccess.CanAccessStoreAsync(db, User, storeId, cancellationToken))
+            return Forbid();
+        if (!StoreAccess.CanAcceptKpiMonth(User))
+            return Forbid();
+        if (!TryParseYearMonth(yearMonth, out var ym))
+            return BadRequest("Tham số tháng phải có định dạng yyyy-MM.");
+
+        StoreMonthlyKpiConfig entity;
+        var existing = await db.StoreMonthlyKpiConfigs.FirstOrDefaultAsync(c => c.StoreId == storeId && c.YearMonth == ym, cancellationToken);
+        if (existing is null)
+        {
+            entity = new StoreMonthlyKpiConfig
+            {
+                Id = Guid.NewGuid(),
+                StoreId = storeId,
+                YearMonth = ym,
+                MonthlyTargetAmount = 0,
+                WeekRatiosJson = "[20,20,20,20,20]",
+                DayRatiosJson = "[14.29,14.29,14.29,14.29,14.29,14.29,14.29]",
+                ShiftRatiosJson = "{}",
+                IsMonthLocked = body.Locked
+            };
+            db.StoreMonthlyKpiConfigs.Add(entity);
+        }
+        else
+        {
+            entity = existing;
+            entity.IsMonthLocked = body.Locked;
+        }
+
+        entity.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(new StoreMonthlyKpiConfigDto(storeId, yearMonth, entity.MonthlyTargetAmount, entity.WeekRatiosJson, entity.DayRatiosJson, entity.ShiftRatiosJson, entity.IsMonthLocked, entity.UpdatedAt));
+    }
+
+    [HttpPatch("daily-day-lock")]
+    public async Task<IActionResult> PatchDailyDayLock(
+        Guid storeId,
+        [FromQuery] string workDate,
+        [FromBody] DayLockPatchDto body,
+        CancellationToken cancellationToken)
+    {
+        if (!await StoreAccess.CanAccessStoreAsync(db, User, storeId, cancellationToken))
+            return Forbid();
+        if (!StoreAccess.IsAdmin(User))
+            return Forbid();
+        if (!DateOnly.TryParse(workDate, out var d))
+            return BadRequest("Tham số ngày phải có định dạng yyyy-MM-dd.");
+
+        await EnsureDailyEntriesAsync(storeId, d, cancellationToken);
+        var row = await db.StoreDailySummaries.FirstAsync(x => x.StoreId == storeId && x.WorkDate == d, cancellationToken);
+        row.IsDayLocked = body.Locked;
+        await db.SaveChangesAsync(cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("daily-equalize")]
+    public async Task<IActionResult> PostDailyEqualize(Guid storeId, [FromQuery] string workDate, CancellationToken cancellationToken)
+    {
+        if (!await StoreAccess.CanAccessStoreAsync(db, User, storeId, cancellationToken))
+            return Forbid();
+        if (!StoreAccess.IsAdminOrAreaOrStore(User))
+            return Forbid();
+        if (!DateOnly.TryParse(workDate, out var d))
+            return BadRequest("Tham số ngày phải có định dạng yyyy-MM-dd.");
+
+        var ymEq = new DateOnly(d.Year, d.Month, 1);
+        if (await db.StoreMonthlyKpiConfigs.AsNoTracking().AnyAsync(c => c.StoreId == storeId && c.YearMonth == ymEq && c.IsMonthLocked, cancellationToken))
+            return Conflict(new { message = "Tháng đã khoá — không equalize." });
+        if (await db.StoreDailySummaries.AsNoTracking().AnyAsync(x => x.StoreId == storeId && x.WorkDate == d && x.IsDayLocked, cancellationToken))
+            return Conflict(new { message = "Ngày đã khoá — không equalize." });
+
+        await EnsureDailyEntriesAsync(storeId, d, cancellationToken);
+
+        var staffIds = await db.StoreStaff.Where(s => s.StoreId == storeId).Select(s => s.Id).ToListAsync(cancellationToken);
+        var entries = await db.StaffDailyEntries
+            .Where(e => e.WorkDate == d && staffIds.Contains(e.StoreStaffId))
+            .Include(e => e.StoreStaff)
+            .ToListAsync(cancellationToken);
+
+        var salesEntries = entries
+            .Where(e => ShiftKpiMath.WeightNv(e.HoursMorning, e.HoursAfternoon, e.HoursEvening, e.HoursExtra, ShiftKpiMath.IsSalesPosition(e.StoreStaff.PositionCode)) > 0m)
+            .OrderBy(e => e.StoreStaff.StaffCode)
+            .ToList();
+
+        if (salesEntries.Count == 0)
+            return BadRequest("Không có nhân viên bán hàng có giờ công để chia đều.");
+
+        var n = salesEntries.Count;
+        var sumRm = salesEntries.Sum(x => x.RevenueMorning);
+        var sumRa = salesEntries.Sum(x => x.RevenueAfternoon);
+        var sumRe = salesEntries.Sum(x => x.RevenueEvening);
+        var sumC = salesEntries.Sum(x => x.Customers);
+        var sumT = salesEntries.Sum(x => x.TryOns);
+        var sumO = salesEntries.Sum(x => x.Orders);
+        var sumP = salesEntries.Sum(x => x.Products);
+
+        static void SplitMoney(IReadOnlyList<StaffDailyEntry> list, decimal total, Action<StaffDailyEntry, decimal> assign)
+        {
+            var count = list.Count;
+            if (count == 0) return;
+            var per = Math.Round(total / count, 2, MidpointRounding.AwayFromZero);
+            for (var i = 0; i < count - 1; i++)
+                assign(list[i], per);
+            assign(list[count - 1], total - per * (count - 1));
+        }
+
+        SplitMoney(salesEntries, sumRm, (e, v) => e.RevenueMorning = v);
+        SplitMoney(salesEntries, sumRa, (e, v) => e.RevenueAfternoon = v);
+        SplitMoney(salesEntries, sumRe, (e, v) => e.RevenueEvening = v);
+
+        for (var i = 0; i < n; i++)
+        {
+            var e = salesEntries[i];
+            e.Customers = sumC / n + (i < sumC % n ? 1 : 0);
+            e.TryOns = sumT / n + (i < sumT % n ? 1 : 0);
+            e.Orders = sumO / n + (i < sumO % n ? 1 : 0);
+            e.Products = sumP / n + (i < sumP % n ? 1 : 0);
+            e.Version++;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return NoContent();
+    }
+
     [HttpGet("kpi-months/{yearMonth}")]
     public async Task<ActionResult<StoreMonthlyKpiConfigDto>> GetKpiMonth(Guid storeId, string yearMonth, CancellationToken cancellationToken)
     {
@@ -476,10 +714,16 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
     {
         if (!await StoreAccess.CanAccessStoreAsync(db, User, storeId, cancellationToken))
             return Forbid();
-        if (!StoreAccess.CanEditKpiMonthConfig(User))
-            return Forbid();
         if (!TryParseYearMonth(yearMonth, out var ym))
             return BadRequest("Tham số tháng phải có định dạng yyyy-MM.");
+
+        var serverToday = DateOnly.FromDateTime(DateTime.Now);
+        if (!StoreAccess.CanEditKpiMonthConfig(User, ym, serverToday))
+        {
+            if (User.IsInRole(KrikRoles.StoreManager))
+                return Conflict(new { message = "QLCH chỉ sửa cấu hình KPI tháng vào ngày mùng 1 của chính tháng đó (theo giờ máy server)." });
+            return Forbid();
+        }
 
         if (body.MonthlyTargetAmount < 0)
             return BadRequest("KPI tháng phải ≥ 0.");
@@ -533,7 +777,69 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
         var denom = Math.Max(tongDoanhThuHeThongThang, 1m);
         var discrepancy = Math.Abs(revenueStaff - tongDoanhThuHeThongThang) / denom > 0.05m;
 
-        return Ok(new MonthlyDashboardDto(yearMonth, target, revenueStaff, tongDoanhThuHeThongThang, kpiPct, discrepancy, cfg?.IsMonthLocked ?? false));
+        var dailyStaff = await (
+            from e in db.StaffDailyEntries.AsNoTracking()
+            join s in db.StoreStaff.AsNoTracking() on e.StoreStaffId equals s.Id
+            where s.StoreId == storeId && e.WorkDate >= ym && e.WorkDate <= last
+            group e by e.WorkDate into g
+            select new { d = g.Key, sum = g.Sum(x => x.RevenueMorning + x.RevenueAfternoon + x.RevenueEvening) }
+        ).ToListAsync(cancellationToken);
+        var dailyStaffMap = dailyStaff.ToDictionary(x => x.d, x => x.sum);
+
+        var dailySummaries = await db.StoreDailySummaries.AsNoTracking()
+            .Where(x => x.StoreId == storeId && x.WorkDate >= ym && x.WorkDate <= last)
+            .Select(x => new { x.WorkDate, x.TongDoanhThuHeThong, x.StoreDayKpiTarget, x.IsDayLocked })
+            .ToListAsync(cancellationToken);
+        var summaryMap = dailySummaries.ToDictionary(x => x.WorkDate);
+
+        var allDates = new List<DateOnly>(DateTime.DaysInMonth(ym.Year, ym.Month));
+        for (var day = 1; day <= DateTime.DaysInMonth(ym.Year, ym.Month); day++)
+            allDates.Add(new DateOnly(ym.Year, ym.Month, day));
+
+        var series = allDates.Select(d =>
+        {
+            summaryMap.TryGetValue(d, out var sum);
+            var staffRev = dailyStaffMap.GetValueOrDefault(d);
+            return new MonthlyDailySeriesItemDto(
+                d,
+                staffRev,
+                sum?.TongDoanhThuHeThong ?? 0m,
+                sum?.StoreDayKpiTarget ?? 0m,
+                sum?.IsDayLocked ?? false);
+        }).ToList();
+
+        var topRaw = await (
+            from e in db.StaffDailyEntries.AsNoTracking()
+            join s in db.StoreStaff.AsNoTracking() on e.StoreStaffId equals s.Id
+            where s.StoreId == storeId && e.WorkDate >= ym && e.WorkDate <= last
+            group new { e, s } by new { s.Id, s.StaffCode, s.FullName, s.PositionCode } into g
+            select new
+            {
+                g.Key.Id,
+                g.Key.StaffCode,
+                g.Key.FullName,
+                g.Key.PositionCode,
+                TotalRevenue = g.Sum(x => x.e.RevenueMorning + x.e.RevenueAfternoon + x.e.RevenueEvening),
+                TotalHours = g.Sum(x => x.e.HoursMorning + x.e.HoursAfternoon + x.e.HoursEvening + x.e.HoursExtra),
+            })
+            .OrderByDescending(x => x.TotalRevenue)
+            .Take(5)
+            .ToListAsync(cancellationToken);
+
+        var topStaff = topRaw
+            .Select(x => new MonthlyTopStaffDto(x.Id, x.StaffCode, x.FullName, x.PositionCode, x.TotalRevenue, x.TotalHours))
+            .ToList();
+
+        return Ok(new MonthlyDashboardDto(
+            yearMonth,
+            target,
+            revenueStaff,
+            tongDoanhThuHeThongThang,
+            kpiPct,
+            discrepancy,
+            cfg?.IsMonthLocked ?? false,
+            series,
+            topStaff));
     }
 
     [HttpGet("payroll")]
@@ -701,9 +1007,16 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
 
     private async Task<DailyEntryRowDto> BuildRowDtoAsync(Guid storeId, StaffDailyEntry entry, CancellationToken cancellationToken)
     {
+        var ym = new DateOnly(entry.WorkDate.Year, entry.WorkDate.Month, 1);
+        var revenueByDate = await BuildStaffRevenueByDateAsync(storeId, ym, cancellationToken);
         var summary = await db.StoreDailySummaries.AsNoTracking()
             .FirstOrDefaultAsync(x => x.StoreId == storeId && x.WorkDate == entry.WorkDate, cancellationToken);
-        var kpiDay = await ResolveStoreDayKpiTargetAsync(storeId, entry.WorkDate, summary, cancellationToken);
+        var kpiDay = await ResolveStoreDayKpiTargetAsync(storeId, entry.WorkDate, summary, revenueByDate, cancellationToken);
+
+        var monthCfg = await db.StoreMonthlyKpiConfigs.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.StoreId == storeId && c.YearMonth == ym, cancellationToken);
+        var monthLocked = monthCfg?.IsMonthLocked ?? false;
+        var dayLocked = summary?.IsDayLocked ?? false;
 
         var staffList = await db.StoreStaff.AsNoTracking().Where(s => s.StoreId == storeId).ToListAsync(cancellationToken);
         var staffIds = staffList.Select(s => s.Id).ToList();
@@ -725,6 +1038,7 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
         var w = ShiftKpiMath.WeightNv(entry.HoursMorning, entry.HoursAfternoon, entry.HoursEvening, entry.HoursExtra, ShiftKpiMath.IsSalesPosition(s.PositionCode));
         var rev = entry.RevenueMorning + entry.RevenueAfternoon + entry.RevenueEvening;
         var (target, pct) = ShiftKpiMath.DailyPersonalTargets(kpiDay, w, totalW, rev);
+        var canPatch = !monthLocked && !dayLocked && await CanUserPatchDailyRowAsync(storeId, s, cancellationToken);
 
         return new DailyEntryRowDto(
             entry.Id,
@@ -748,7 +1062,8 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
             w,
             target,
             rev,
-            pct);
+            pct,
+            canPatch);
     }
 
     private async Task EnsureDailyEntriesAsync(Guid storeId, DateOnly workDate, CancellationToken cancellationToken)
@@ -814,6 +1129,14 @@ public sealed class StoreShiftKpiController(AppDbContext db) : ControllerBase
         if (body.HourlyRate < 0 || body.TeamBonusBase < 0)
             return "Lương/giờ và thưởng team phải ≥ 0.";
         return null;
+    }
+
+    private static string? ValidatePositionCode(string positionCode)
+    {
+        var p = positionCode.Trim().ToUpperInvariant();
+        return p is "QLCH" or "CHP" or "NVBH_FT" or "NVBH_PT" or "NVTN" or "NVK" or "NVBV"
+            ? null
+            : "Chức danh không hợp lệ (QLCH, CHP, NVBH_FT, NVBH_PT, NVTN, NVK, NVBV).";
     }
 
     private static bool HasLoginCredentials(string? email, string? password) =>

@@ -31,7 +31,8 @@ public sealed record StoreDailySummaryDto(
     int StoreOrders,
     int StoreProducts,
     decimal StoreDayKpiTarget,
-    decimal TongDoanhThuHeThong);
+    decimal TongDoanhThuHeThong,
+    bool IsDayLocked);
 
 public sealed record DailyEntryRowDto(
     Guid EntryId,
@@ -55,11 +56,14 @@ public sealed record DailyEntryRowDto(
     decimal WeightNv,
     decimal TargetNv,
     decimal RevenueTotal,
-    decimal PercentNv);
+    decimal PercentNv,
+    bool CanPatch);
 
 public sealed record DailySheetDto(
     Guid StoreId,
     DateOnly WorkDate,
+    bool MonthLocked,
+    bool DayLocked,
     StoreDailySummaryDto Summary,
     IReadOnlyList<DailyEntryRowDto> Rows);
 
@@ -94,6 +98,12 @@ public sealed record StoreMonthlyKpiConfigWriteDto(
     string DayRatiosJson,
     string ShiftRatiosJson);
 
+public sealed record MonthLockPatchDto(bool Locked);
+
+public sealed record DayLockPatchDto(bool Locked);
+
+public sealed record StaffPositionPatchDto(string PositionCode);
+
 public sealed record MonthlyDashboardDto(
     string YearMonth,
     decimal MonthlyTarget,
@@ -101,7 +111,24 @@ public sealed record MonthlyDashboardDto(
     decimal TongDoanhThuHeThongThang,
     decimal KpiAchievedPct,
     bool DiscrepancyOver5Pct,
-    bool IsMonthLocked);
+    bool IsMonthLocked,
+    IReadOnlyList<MonthlyDailySeriesItemDto> DailySeries,
+    IReadOnlyList<MonthlyTopStaffDto> TopStaff);
+
+public sealed record MonthlyDailySeriesItemDto(
+    DateOnly WorkDate,
+    decimal StaffRevenue,
+    decimal ChannelRevenue,
+    decimal StoreDayKpiTarget,
+    bool IsDayLocked);
+
+public sealed record MonthlyTopStaffDto(
+    Guid StaffId,
+    string StaffCode,
+    string FullName,
+    string PositionCode,
+    decimal TotalRevenue,
+    decimal TotalHours);
 
 public sealed record PayrollRowDto(
     Guid StaffId,

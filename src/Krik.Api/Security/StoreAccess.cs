@@ -44,7 +44,26 @@ public static class StoreAccess
         user.IsInRole(KrikRoles.AreaManager) ||
         user.IsInRole(KrikRoles.StoreManager);
 
-    public static bool CanEditKpiMonthConfig(ClaimsPrincipal user) => IsAdmin(user);
+    /// <summary>
+    /// AreaManager đề xuất + cập nhật cấu hình KPI tháng cho cửa hàng trong khu vực.
+    /// StoreManager (QLCH) chỉ sửa được ngày mùng 1 của chính tháng cấu hình, theo giờ local của server.
+    /// AdminHR (nhân sự) không trực tiếp sửa — chỉ <see cref="CanAcceptKpiMonth"/> (accept + khoá tháng).
+    /// </summary>
+    public static bool CanEditKpiMonthConfig(ClaimsPrincipal user, DateOnly yearMonth, DateOnly serverToday)
+    {
+        if (user.IsInRole(KrikRoles.AreaManager))
+            return true;
+
+        if (!user.IsInRole(KrikRoles.StoreManager))
+            return false;
+
+        return serverToday.Day == 1 &&
+            yearMonth.Year == serverToday.Year &&
+            yearMonth.Month == serverToday.Month;
+    }
+
+    /// <summary>HR workflow: chỉ AdminHR mới accept (chốt) và khoá / mở khoá tháng KPI.</summary>
+    public static bool CanAcceptKpiMonth(ClaimsPrincipal user) => IsAdmin(user);
 
     public static bool CanEditStaffMaster(ClaimsPrincipal user) => IsAdminOrAreaOrStore(user);
 
