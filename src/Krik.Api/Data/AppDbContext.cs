@@ -12,6 +12,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<UserArea> UserAreas => Set<UserArea>();
 
+    public DbSet<StoreStaff> StoreStaff => Set<StoreStaff>();
+    public DbSet<StaffDailyEntry> StaffDailyEntries => Set<StaffDailyEntry>();
+    public DbSet<StoreDailySummary> StoreDailySummaries => Set<StoreDailySummary>();
+    public DbSet<StoreMonthlyKpiConfig> StoreMonthlyKpiConfigs => Set<StoreMonthlyKpiConfig>();
+    public DbSet<CommissionBracket> CommissionBrackets => Set<CommissionBracket>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Area>(e =>
@@ -55,6 +61,40 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasKey(x => new { x.UserId, x.AreaId });
             e.HasOne(x => x.User).WithMany(u => u.UserAreas).HasForeignKey(x => x.UserId);
             e.HasOne(x => x.Area).WithMany(a => a.UserAreas).HasForeignKey(x => x.AreaId);
+        });
+
+        modelBuilder.Entity<StoreStaff>(e =>
+        {
+            e.HasIndex(x => new { x.StoreId, x.StaffCode }).IsUnique();
+            e.Property(x => x.StaffCode).HasMaxLength(64);
+            e.Property(x => x.FullName).HasMaxLength(200);
+            e.Property(x => x.PositionCode).HasMaxLength(32);
+            e.Property(x => x.ContractType).HasMaxLength(8);
+            e.HasOne(x => x.Store).WithMany(s => s.StaffMembers).HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.LinkedUser).WithMany().HasForeignKey(x => x.LinkedUserId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<StaffDailyEntry>(e =>
+        {
+            e.HasIndex(x => new { x.StoreStaffId, x.WorkDate }).IsUnique();
+            e.HasOne(x => x.StoreStaff).WithMany(s => s.DailyEntries).HasForeignKey(x => x.StoreStaffId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StoreDailySummary>(e =>
+        {
+            e.HasIndex(x => new { x.StoreId, x.WorkDate }).IsUnique();
+            e.HasOne(x => x.Store).WithMany(s => s.DailySummaries).HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StoreMonthlyKpiConfig>(e =>
+        {
+            e.HasIndex(x => new { x.StoreId, x.YearMonth }).IsUnique();
+            e.HasOne(x => x.Store).WithMany(s => s.MonthlyKpiConfigs).HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CommissionBracket>(e =>
+        {
+            e.HasIndex(x => new { x.PositionCode, x.ContractType, x.EffectiveFrom });
         });
     }
 }
